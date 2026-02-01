@@ -41,7 +41,9 @@ export const apiRequest = async (url: string, options: RequestInit = {}) => {
 
   const response = await fetch(url, defaultOptions);
   
-  if (!response.ok) {
+  // Only throw for server errors (5xx), not client errors (4xx)
+  // This allows form handlers to process validation errors from 4xx responses
+  if (!response.ok && response.status >= 500) {
     throw new Error(`API request failed: ${response.status} ${response.statusText}`);
   }
   
