@@ -268,8 +268,17 @@ function EmployeeManagement() {
         toast.success(`Employee ${newEmployee.full_name} added successfully!`);
       } else {
         const errorData = await response.json();
-        setErrors(errorData);
-        toast.error('Failed to add employee');
+        // Handle Django REST framework error format
+        const formattedErrors: FormErrors = {};
+        Object.keys(errorData).forEach(field => {
+          if (Array.isArray(errorData[field])) {
+            formattedErrors[field] = errorData[field].join(', '); // Join multiple errors or take first
+          } else if (typeof errorData[field] === 'string') {
+            formattedErrors[field] = errorData[field];
+          }
+        });
+        setErrors(formattedErrors);
+        toast.error('Failed to add employee. Please check the form for errors.');
       }
     } catch (error) {
       console.error('Error adding employee:', error);
@@ -305,8 +314,17 @@ function EmployeeManagement() {
         toast.success(`Employee ${updatedEmployee.full_name} updated successfully!`);
       } else {
         const errorData = await response.json();
-        setErrors(errorData);
-        toast.error('Failed to update employee');
+        // Handle Django REST framework error format
+        const formattedErrors: FormErrors = {};
+        Object.keys(errorData).forEach(field => {
+          if (Array.isArray(errorData[field])) {
+            formattedErrors[field] = errorData[field].join(', '); // Join multiple errors or take first
+          } else if (typeof errorData[field] === 'string') {
+            formattedErrors[field] = errorData[field];
+          }
+        });
+        setErrors(formattedErrors);
+        toast.error('Failed to update employee. Please check the form for errors.');
       }
     } catch (error) {
       console.error('Error updating employee:', error);
