@@ -1,8 +1,8 @@
 'use client'
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, Suspense } from 'react';
 import { Calendar, dateFnsLocalizer } from 'react-big-calendar';
-import { format, parse, startOfWeek, getDay, startOfMonth, endOfMonth, isBefore, isAfter, startOfToday, endOfDay } from 'date-fns';
-import enUS from 'date-fns/locale/en-US';
+import { format, parse, startOfWeek, getDay, startOfMonth, endOfMonth, isAfter, endOfDay } from 'date-fns';
+import { enUS } from 'date-fns/locale/en-US';
 import { useSearchParams } from 'next/navigation';
 
 import {
@@ -135,8 +135,8 @@ const AttendanceModal = ({ isOpen, onClose, date, currentStatus, onSave, loading
   );
 };
 
-// --- Main Component ---
-function Attendance() {
+// --- Attendance Content Component ---
+function AttendanceContent() {
   const searchParams = useSearchParams();
   const employeeId = searchParams.get('employeeId');
 
@@ -176,7 +176,7 @@ function Attendance() {
     const today = new Date();
     const currentYear = today.getFullYear();
     const currentMonth = today.getMonth();
-    
+
     if (year > currentYear) return true;
     if (year === currentYear && month > currentMonth) return true;
     return false;
@@ -657,6 +657,22 @@ function Attendance() {
         }
       />
     </div>
+  );
+}
+
+// --- Main Component with Suspense ---
+function Attendance() {
+  return (
+    <Suspense fallback={
+      <div className="flex justify-center items-center min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-slate-900 mx-auto mb-4"></div>
+          <p className="text-slate-600 font-medium">Loading attendance page...</p>
+        </div>
+      </div>
+    }>
+      <AttendanceContent />
+    </Suspense>
   );
 }
 
