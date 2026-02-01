@@ -10,7 +10,7 @@ router = routers.DefaultRouter()
 
 router.register(r'employees', EmployeeViewSet)
 router.register(r'departments', DepartmentViewSet)
-router.register(r'attendences', AttendenceViewSet)
+router.register(r'attendances', AttendenceViewSet)
 
 urlpatterns = [
     path('', include(router.urls)),

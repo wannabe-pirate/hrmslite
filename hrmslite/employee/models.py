@@ -1,4 +1,10 @@
 from django.db import models
+from django.core.validators import RegexValidator
+
+no_space_validator = RegexValidator(
+    regex=r'^\S+$',
+    message='This field cannot contain spaces.'
+)
 
 # Create your models here.
 
@@ -9,7 +15,15 @@ class Department(models.Model):
         return self.name
 
 class Employee(models.Model):
-    emp_id = models.CharField(max_length = 12, unique = True, blank = False, null = False, db_index = True)
+    emp_id = models.CharField(
+        max_length = 12,
+        unique = True, 
+        blank = False, 
+        null = False, 
+        db_index = True,
+        validators=[no_space_validator],
+    )
+    
     full_name = models.CharField(max_length = 120, blank = False, null = False)
     email = models.EmailField(unique = True, blank = False, null = False, )
     department = models.ForeignKey(

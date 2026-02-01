@@ -1,7 +1,11 @@
 from employee.models import Department, Employee, Attendence
-from rest_framework import serializers, viewsets
+from rest_framework import serializers
 
 class EmployeeSerializer(serializers.ModelSerializer):
+    today_attendance = serializers.CharField(source='today_attendance_status', read_only=True, allow_null=True)
+    today_attendance_id = serializers.IntegerField(read_only=True, allow_null=True)
+
+    
     class Meta:
         model = Employee
         fields = '__all__'

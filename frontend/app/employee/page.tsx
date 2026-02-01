@@ -1,16 +1,16 @@
 'use client'
 
 import { useState, useEffect } from 'react';
-import { CalendarCheck, Plus, Users, Info, Trash2, ArrowUpDown, ArrowUp, ArrowDown, Search } from 'lucide-react';
-import { useRouter } from 'next/navigation';
+import { CalendarCheck, Plus, Users, Info, Trash2, ArrowUpDown, ArrowUp, ArrowDown, Search, CheckCircle, XCircle, Edit3, ChevronDown } from 'lucide-react';
+import Link from 'next/link';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { toast } from 'sonner';
-
-const API_BASE_URL = 'http://localhost:8000';
+import { API_ENDPOINTS, buildApiUrl, apiRequest } from '@/lib/api';
 
 interface Employee {
   id: number;
@@ -18,6 +18,8 @@ interface Employee {
   full_name: string;
   email: string;
   department: number;
+  today_attendance: string | null;
+  today_attendance_id: number | null;
 }
 
 interface Department {
@@ -61,7 +63,9 @@ function EmployeeManagement() {
   const [orderBy, setOrderBy] = useState<OrderField>(null);
   const [orderDirection, setOrderDirection] = useState<OrderDirection>('asc');
 
-  const router = useRouter();
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
 
   // Fetch employees on component mount and when search/order changes
   useEffect(() => {
@@ -69,20 +73,26 @@ function EmployeeManagement() {
     fetchDepartments();
   }, [searchQuery, orderBy, orderDirection]);
 
+  // Reset to first page when search/filter changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, orderBy, orderDirection, itemsPerPage]);
+
   const fetchEmployees = async () => {
     try {
-      let url = `${API_BASE_URL}/employees/?`;
-      
+      const params: Record<string, string> = {};
+
       if (searchQuery) {
-        url += `search=${encodeURIComponent(searchQuery)}&`;
-      }
-      
-      if (orderBy) {
-        const orderPrefix = orderDirection === 'desc' ? '-' : '';
-        url += `ordering=${orderPrefix}${orderBy}`;
+        params.search = searchQuery;
       }
 
-      const response = await fetch(url);
+      if (orderBy) {
+        const orderPrefix = orderDirection === 'desc' ? '-' : '';
+        params.ordering = `${orderPrefix}${orderBy}`;
+      }
+
+      const url = buildApiUrl(API_ENDPOINTS.employees, params);
+      const response = await apiRequest(url);
       const data = await response.json();
       setEmployees(data);
       setLoading(false);
@@ -93,18 +103,70 @@ function EmployeeManagement() {
     }
   };
 
-  const goToAttendance = (employeeID: number) => {
-    router.push(`/employee/attendance/?employeeId=${employeeID}`);
-  };
-
   const fetchDepartments = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/departments/`);
+      const url = buildApiUrl(API_ENDPOINTS.departments);
+      const response = await apiRequest(url);
       const data = await response.json();
       setDepartments(data);
     } catch (error) {
       console.error('Error fetching departments:', error);
       toast.error('Failed to load departments');
+    }
+  };
+
+  const handleAttendanceMark = async (employee: Employee, status: 'Present' | 'Absent') => {
+    const today = new Date().toISOString().split('T')[0];
+
+    try {
+      let response;
+
+      // If attendance already exists for today, use PATCH to update it
+      if (employee.today_attendance_id) {
+        const updateUrl = buildApiUrl(API_ENDPOINTS.attendance(employee.today_attendance_id.toString()));
+        response = await apiRequest(updateUrl, {
+          method: 'PATCH',
+          body: JSON.stringify({
+            status: status,
+          }),
+        });
+      } else {
+        // If no attendance record exists, create a new one with POST
+        const createUrl = buildApiUrl(API_ENDPOINTS.attendances);
+        response = await apiRequest(createUrl, {
+          method: 'POST',
+          body: JSON.stringify({
+            date: today,
+            status: status,
+            employee: employee.id,
+          }),
+        });
+      }
+
+      if (response.ok) {
+        const updatedAttendance = await response.json();
+
+        // Update local state with the new attendance status and ID
+        setEmployees(prev => prev.map(emp =>
+          emp.id === employee.id
+            ? {
+              ...emp,
+              today_attendance: status,
+              today_attendance_id: updatedAttendance.id || employee.today_attendance_id
+            }
+            : emp
+        ));
+
+        const action = employee.today_attendance_id ? 'updated to' : 'marked as';
+        toast.success(`Attendance ${action} ${status} for ${employee.full_name}`);
+      } else {
+        const errorData = await response.json();
+        console.error('Error response:', errorData);
+        toast.error('Failed to update attendance');
+      }
+    } catch (error) {
+      console.error('Error updating attendance:', error);
+      toast.error('Failed to update attendance');
     }
   };
 
@@ -155,11 +217,9 @@ function EmployeeManagement() {
     if (!newDepartmentName.trim()) return;
 
     try {
-      const response = await fetch(`${API_BASE_URL}/departments/`, {
+      const url = buildApiUrl(API_ENDPOINTS.departments);
+      const response = await apiRequest(url, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
         body: JSON.stringify({
           name: newDepartmentName.trim(),
         }),
@@ -189,11 +249,9 @@ function EmployeeManagement() {
     }
 
     try {
-      const response = await fetch(`${API_BASE_URL}/employees/`, {
+      const url = buildApiUrl(API_ENDPOINTS.employees);
+      const response = await apiRequest(url, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
         body: JSON.stringify({
           emp_id: formData.emp_id,
           full_name: formData.full_name,
@@ -227,11 +285,9 @@ function EmployeeManagement() {
     }
 
     try {
-      const response = await fetch(`${API_BASE_URL}/employees/${selectedEmployee.id}/`, {
+      const url = buildApiUrl(API_ENDPOINTS.employee(selectedEmployee.id.toString()));
+      const response = await apiRequest(url, {
         method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
         body: JSON.stringify({
           emp_id: formData.emp_id,
           full_name: formData.full_name,
@@ -262,7 +318,8 @@ function EmployeeManagement() {
     if (!selectedEmployee) return;
 
     try {
-      const response = await fetch(`${API_BASE_URL}/employees/${selectedEmployee.id}/`, {
+      const url = buildApiUrl(API_ENDPOINTS.employee(selectedEmployee.id.toString()));
+      const response = await apiRequest(url, {
         method: 'DELETE',
       });
 
@@ -322,9 +379,105 @@ function EmployeeManagement() {
     if (orderBy !== field) {
       return <ArrowUpDown className="w-4 h-4 ml-1 text-gray-400" />;
     }
-    return orderDirection === 'asc' 
+    return orderDirection === 'asc'
       ? <ArrowUp className="w-4 h-4 ml-1 text-blue-600" />
       : <ArrowDown className="w-4 h-4 ml-1 text-blue-600" />;
+  };
+
+  const renderAttendanceButton = (employee: Employee) => {
+    const currentStatus = employee.today_attendance;
+
+    // If there's no attendance status (null), show the "Mark" button
+    if (!currentStatus) {
+      return (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              className="transition flex items-center gap-1 cursor-pointer text-gray-600 hover:text-blue-600"
+              title="Mark attendance status"
+            >
+              <Edit3 className="w-4 h-4" />
+              <span className="text-xs">Mark</span>
+              <ChevronDown className="w-3 h-3" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start">
+            <DropdownMenuItem
+              onClick={() => handleAttendanceMark(employee, 'Present')}
+              className="flex items-center gap-2 cursor-pointer"
+            >
+              <CheckCircle className="w-4 h-4 text-green-600" />
+              <span>Present</span>
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => handleAttendanceMark(employee, 'Absent')}
+              className="flex items-center gap-2 cursor-pointer"
+            >
+              <XCircle className="w-4 h-4 text-red-600" />
+              <span>Absent</span>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      );
+    }
+
+    // If there's an attendance status, show it with option to change
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            className={`transition flex items-center gap-1 cursor-pointer ${currentStatus === 'Present'
+              ? 'text-green-600 hover:text-green-700'
+              : 'text-red-600 hover:text-red-700'
+              }`}
+            title="Change attendance status"
+          >
+            {currentStatus === 'Present' ? (
+              <>
+                <CheckCircle className="w-4 h-4" />
+                <span className="text-xs">Present</span>
+              </>
+            ) : (
+              <>
+                <XCircle className="w-4 h-4" />
+                <span className="text-xs">Absent</span>
+              </>
+            )}
+            <ChevronDown className="w-3 h-3" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start">
+          <DropdownMenuItem
+            onClick={() => handleAttendanceMark(employee, 'Present')}
+            className={`flex items-center gap-2 cursor-pointer ${currentStatus === 'Present' ? 'bg-green-50' : ''
+              }`}
+          >
+            <CheckCircle className="w-4 h-4 text-green-600" />
+            <span>Present</span>
+            {currentStatus === 'Present' && <span className="text-xs text-green-600 ml-auto">✓</span>}
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={() => handleAttendanceMark(employee, 'Absent')}
+            className={`flex items-center gap-2 cursor-pointer ${currentStatus === 'Absent' ? 'bg-red-50' : ''
+              }`}
+          >
+            <XCircle className="w-4 h-4 text-red-600" />
+            <span>Absent</span>
+            {currentStatus === 'Absent' && <span className="text-xs text-red-600 ml-auto">✓</span>}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
+  };
+
+  // Pagination calculations
+  const totalPages = Math.ceil(employees.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const currentEmployees = employees.slice(startIndex, endIndex);
+
+  const goToPage = (page: number) => {
+    setCurrentPage(Math.min(Math.max(1, page), totalPages));
   };
 
   if (loading) {
@@ -465,9 +618,9 @@ function EmployeeManagement() {
         </Dialog>
       </div>
 
-      {/* Search Bar */}
-      <div className="mb-4">
-        <div className="relative">
+      {/* Search Bar and Items Per Page */}
+      <div className="mb-4 flex gap-4 items-center">
+        <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
           <Input
             type="text"
@@ -477,6 +630,22 @@ function EmployeeManagement() {
             className="pl-10"
           />
         </div>
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-gray-600 whitespace-nowrap">Show:</span>
+          <Select
+            value={itemsPerPage.toString()}
+            onValueChange={(value) => setItemsPerPage(parseInt(value))}
+          >
+            <SelectTrigger className="w-20">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="10">10</SelectItem>
+              <SelectItem value="20">20</SelectItem>
+              <SelectItem value="50">50</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       {/* Employee List */}
@@ -484,7 +653,7 @@ function EmployeeManagement() {
         <table className="w-full">
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
-              <th 
+              <th
                 className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 transition"
                 onClick={() => handleSort('emp_id')}
               >
@@ -493,7 +662,7 @@ function EmployeeManagement() {
                   {getSortIcon('emp_id')}
                 </div>
               </th>
-              <th 
+              <th
                 className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 transition"
                 onClick={() => handleSort('full_name')}
               >
@@ -502,7 +671,7 @@ function EmployeeManagement() {
                   {getSortIcon('full_name')}
                 </div>
               </th>
-              <th 
+              <th
                 className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 transition"
                 onClick={() => handleSort('email')}
               >
@@ -511,7 +680,7 @@ function EmployeeManagement() {
                   {getSortIcon('email')}
                 </div>
               </th>
-              <th 
+              <th
                 className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 transition"
                 onClick={() => handleSort('department')}
               >
@@ -521,19 +690,22 @@ function EmployeeManagement() {
                 </div>
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Today
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Actions
               </th>
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
-            {employees.length === 0 ? (
+            {currentEmployees.length === 0 ? (
               <tr>
-                <td colSpan={5} className="px-6 py-8 text-center text-gray-500">
+                <td colSpan={6} className="px-6 py-8 text-center text-gray-500">
                   {searchQuery ? 'No employees found matching your search.' : 'No employees found. Add your first employee to get started.'}
                 </td>
               </tr>
             ) : (
-              employees.map((employee) => (
+              currentEmployees.map((employee) => (
                 <tr key={employee.id} className="hover:bg-gray-50">
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                     {employee.emp_id}
@@ -548,14 +720,18 @@ function EmployeeManagement() {
                     {getDepartmentName(employee.department)}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm">
+                    {renderAttendanceButton(employee)}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm">
                     <div className="flex items-center gap-3">
-                      <button
-                        onClick={() => goToAttendance(employee.id)}
-                        className="text-gray-800 hover:text-gray-600 transition flex items-center gap-1 cursor-pointer"
-                      >
-                        <CalendarCheck className="w-4 h-4" />
-                        Attendance
-                      </button>
+                      <Link href={{ pathname: '/employee/attendance/', query: { employeeId: employee.id } }}>
+                        <button
+                          className="text-gray-800 hover:text-gray-600 transition flex items-center gap-1 cursor-pointer"
+                        >
+                          <CalendarCheck className="w-4 h-4" />
+                          Attendance
+                        </button>
+                      </Link>
                       <button
                         onClick={() => openEditModal(employee)}
                         className="text-blue-600 hover:text-blue-800 transition flex items-center gap-1 cursor-pointer"
@@ -571,6 +747,59 @@ function EmployeeManagement() {
           </tbody>
         </table>
       </div>
+
+      {/* Pagination Controls */}
+      {employees.length > 0 && (
+        <div className="mt-4 flex items-center justify-between">
+          <div className="text-sm text-gray-600">
+            Showing {startIndex + 1} to {Math.min(endIndex, employees.length)} of {employees.length} employees
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => goToPage(currentPage - 1)}
+              disabled={currentPage === 1}
+            >
+              Previous
+            </Button>
+            <div className="flex items-center gap-1">
+              {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                let pageNum;
+                if (totalPages <= 5) {
+                  pageNum = i + 1;
+                } else if (currentPage <= 3) {
+                  pageNum = i + 1;
+                } else if (currentPage >= totalPages - 2) {
+                  pageNum = totalPages - 4 + i;
+                } else {
+                  pageNum = currentPage - 2 + i;
+                }
+
+                return (
+                  <Button
+                    key={pageNum}
+                    variant={currentPage === pageNum ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => goToPage(pageNum)}
+                    className="w-10"
+                  >
+                    {pageNum}
+                  </Button>
+                );
+              })}
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => goToPage(currentPage + 1)}
+              disabled={currentPage === totalPages}
+            >
+              Next
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Edit Employee Modal */}
       <Dialog open={isEditModalOpen} onOpenChange={(open) => {
@@ -746,7 +975,7 @@ function EmployeeManagement() {
           <AlertDialogHeader>
             <AlertDialogTitle>Permanent Deletion</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete <strong>{selectedEmployee?.full_name}</strong>? 
+              Are you sure you want to delete <strong>{selectedEmployee?.full_name}</strong>?
               This action cannot be undone and will permanently remove this employee from the system.
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -761,11 +990,6 @@ function EmployeeManagement() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-
-      {/* Summary */}
-      <div className="mt-4 text-sm text-gray-600">
-        Total Employees: {employees.length}
-      </div>
     </div>
   );
 }
